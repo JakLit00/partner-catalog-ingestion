@@ -56,3 +56,34 @@ of an external API.
 
 Under development. The ingestion pipeline is not implemented yet.
 
+
+## Running PostgreSQL locally
+
+Prerequisite: Docker with Docker Compose.
+
+1. Copy `.env.example` to `.env` and set your own
+   `POSTGRES_PASSWORD`. Never commit `.env`.
+
+2. Start PostgreSQL:
+
+   ```bash
+   docker compose up -d postgres
+   ```
+
+3. Verify the database:
+
+   ```bash
+   docker compose exec postgres psql -U catalog_app -d partner_catalog -c "SELECT current_database(), current_user;"
+   ```
+
+The database is available at `127.0.0.1:5433`.
+Its data persists in a Docker volume.
+
+To stop the service:
+
+```bash
+docker compose stop postgres
+```
+
+Database credentials are applied during initial database creation.
+Editing `.env` afterward does not change an existing database password.
