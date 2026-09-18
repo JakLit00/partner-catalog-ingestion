@@ -94,4 +94,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except requests.RequestException:
+        logger.exception("Catalog extraction failed due to an HTTP request error.")
+        raise SystemExit(1)
