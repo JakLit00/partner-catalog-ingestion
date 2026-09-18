@@ -1,89 +1,101 @@
-\# Partner Catalog Ingestion
+# Partner Catalog Ingestion
 
+A Python project for importing a partner's product catalog from a REST API into PostgreSQL.
 
+## Purpose and status
 
-A Python project for importing a partner's product catalog
+A company needs a structured local copy of a partner's product catalog for internal applications. The planned importer will fetch all API pages, retain raw responses, validate records and load valid products without creating duplicates on repeated imports.
 
-from a REST API into PostgreSQL.
+**Under development:** local PostgreSQL setup and a Python connection check are implemented and manually verified. The API, dataset, ingestion pipeline, product table and automated tests are not implemented yet.
 
+## Planned data flow
 
+```mermaid
+flowchart TD
+    A[Local REST API] --> B[Python importer]
+    B --> C[Raw JSON responses]
+    B --> D[Validation and transformation]
+    D -->|Valid records| E[PostgreSQL]
+    D -->|Invalid records| F[Rejected records with reasons]
+```
 
-\## Business context
+The demo is planned to use a fixed sample catalog from DummyJSON served locally by JSON Server. Dataset selection and license verification are pending. Routine runs will not depend on the public API.
 
+## Run the current version
 
+These instructions target **Windows PowerShell** and should be run from the project directory.
 
-A company needs a local, structured copy of its partner's
+**Requirements:** Python 3.13 and Docker with Docker Compose. Docker Desktop must be running with Linux containers. Internet access is required to download dependencies and the PostgreSQL image on initial setup.
 
-product catalog for use by internal applications.
+### 1. Configure the database
 
+On first setup, copy the template:
 
+```powershell
+Copy-Item .env.example .env
+```
 
-This project focuses on reliable data ingestion and validation.
+If `.env` already exists, keep it instead of overwriting it. Set your own local database password in `.env` and check these values:
 
+```dotenv
+POSTGRES_DB=partner_catalog
+POSTGRES_USER=catalog_app
+POSTGRES_PASSWORD=replace_with_your_local_password
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5433
+```
 
+`.env` is ignored by Git; `.env.example` contains placeholders only. Database credentials are applied on first initialization of an empty data volume. Editing `.env` later does not change an existing database password.
 
-\## Planned workflow
+### 2. Install Python dependencies
 
+Create the virtual environment if it does not exist, then install dependencies:
 
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
 
-1\. Fetch all product pages from a local REST API.
+Using the explicit interpreter path avoids requiring terminal activation.
 
-2\. Save raw JSON responses.
+### 3. Start and check PostgreSQL
 
-3\. Validate and transform product records.
+```powershell
+docker compose up -d postgres
+docker compose exec postgres pg_isready -U catalog_app -d partner_catalog
+```
 
-4\. Store valid records in PostgreSQL without creating duplicates.
+Wait until the readiness check reports `accepting connections`. The database is exposed only on `127.0.0.1:5433`; port `5432` is used inside the container.
 
-5\. Log the import outcome and record rejection reasons.
+### 4. Run the Python connection check
 
+```powershell
+.\.venv\Scripts\python.exe check_connection.py
+```
 
+Expected output with the example database and user names:
 
-\## Demo environment
+```text
+Connected to database: partner_catalog as user: catalog_app
+```
 
+The script loads configuration, connects with a five-second connection timeout and executes `SELECT current_database(), current_user;`. It does not import products.
 
+To stop PostgreSQL:
 
-The project will use a fixed sample dataset served through
-
-a local API to make demonstrations repeatable and independent
-
-of an external API.
-
-
-
-\## Status
-
-
-
-Under development. The ingestion pipeline is not implemented yet.
-
-
-## Running PostgreSQL locally
-
-Prerequisite: Docker with Docker Compose.
-
-1. Copy `.env.example` to `.env` and set your own
-   `POSTGRES_PASSWORD`. Never commit `.env`.
-
-2. Start PostgreSQL:
-
-   ```bash
-   docker compose up -d postgres
-   ```
-
-3. Verify the database:
-
-   ```bash
-   docker compose exec postgres psql -U catalog_app -d partner_catalog -c "SELECT current_database(), current_user;"
-   ```
-
-The database is available at `127.0.0.1:5433`.
-Its data persists in a Docker volume.
-
-To stop the service:
-
-```bash
+```powershell
 docker compose stop postgres
 ```
 
-Database credentials are applied during initial database creation.
-Editing `.env` afterward does not change an existing database password.
+Database files are retained in the named Docker volume. Start the service again with `docker compose up -d postgres`.
+
+## Verification and limitations
+
+- The connection check is a manual smoke check, not an automated test suite. Automated tests are planned.
+- Only the Windows/PowerShell workflow has been manually verified so far. The Python script currently runs in a local virtual environment, not a container.
+- This is a local demo configuration. The official PostgreSQL image creates `POSTGRES_USER` as a database superuser; application-specific least-privilege access is not implemented yet.
+- Pinned package versions and a specific PostgreSQL image tag improve repeatability, but do not guarantee indefinite compatibility with future systems or identical image bytes.
+
+## Documentation
+
+[Development notes](docs/development-notes.md) record implementation stages, decisions, issues and verification results. This README remains the entry point for running the project.
