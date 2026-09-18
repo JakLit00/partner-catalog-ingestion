@@ -1,0 +1,22 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Test and lint cache
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime output
+logs/
+data/raw/
+data/rejected/
