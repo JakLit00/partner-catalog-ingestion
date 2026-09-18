@@ -2,7 +2,10 @@ import os
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 from dotenv import load_dotenv
+
 
 
 def fetch_page(
@@ -12,6 +15,8 @@ def fetch_page(
     page_size: int,
     timeout: float,
 ) -> list:
+    """Fetch one catalog page and require a JSON list response."""
+    
     response = session.get(
         f"{base_url}/products",
         params={"_page": page, "_limit": page_size},
@@ -38,7 +43,21 @@ def main() -> None:
     page_size = 25
     all_products = []
 
+    # Retry transient failures for catalog reads; leave other HTTP errors
+    # to raise_for_status() so configuration errors fail immediately.
+    retry_policy = Retry(
+        total=3,
+        backoff_factor=1,
+        allowed_methods=["GET"],
+        status_forcelist=[429, 500, 502, 503, 504],
+        other=0,
+        raise_on_status=False, # Preserve the final response for raise_for_status().
+    )
+
     with requests.Session() as session:
+        session.mount("http://", HTTPAdapter(max_retries=retry_policy))
+        session.mount("https://", HTTPAdapter(max_retries=retry_policy))
+
         while True:
             products = fetch_page(
                 session=session,
