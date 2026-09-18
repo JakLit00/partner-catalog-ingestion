@@ -18,7 +18,12 @@ def fetch_page(
         timeout=timeout,
     )
     response.raise_for_status()
-    return response.json()
+    products = response.json()
+
+    if not isinstance(products, list):
+        raise ValueError(f"Expected a product list on page {page}.")
+
+    return products
 
 
 def main() -> None:
@@ -29,16 +34,27 @@ def main() -> None:
     base_url = os.environ["API_BASE_URL"].rstrip("/")
     timeout = float(os.environ["API_TIMEOUT_SECONDS"])
 
-    with requests.Session() as session:
-        products = fetch_page(
-            session=session,
-            base_url=base_url,
-            page=1,
-            page_size=25,
-            timeout=timeout,
-        )
+    page = 1
+    page_size = 25
+    all_products = []
 
-    print(f"Received products: {len(products)}")
+    with requests.Session() as session:
+        while True:
+            products = fetch_page(
+                session=session,
+                base_url=base_url,
+                page=page,
+                page_size=page_size,
+                timeout=timeout,
+            )
+
+            if not products:
+                break
+
+            all_products.extend(products)
+            page += 1
+
+    print(f"Received products: {len(all_products)}")
 
 
 if __name__ == "__main__":
