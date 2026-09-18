@@ -6,7 +6,7 @@ A Python project for importing a partner's product catalog from a REST API into 
 
 A company needs a structured local copy of a partner's product catalog for internal applications. The planned importer will fetch all API pages, retain raw responses, validate records and load valid products without creating duplicates on repeated imports.
 
-**Under development:** local PostgreSQL setup and a Python connection check are implemented and manually verified. The API, dataset, ingestion pipeline, product table and automated tests are not implemented yet.
+**Under development:** local PostgreSQL setup, a Python connection check and a fixed 194-product dataset are available. The API, ingestion pipeline, product table and automated tests are not implemented yet.
 
 ## Planned data flow
 
@@ -19,7 +19,17 @@ flowchart TD
     D -->|Invalid records| F[Rejected records with reasons]
 ```
 
-The demo is planned to use a fixed sample catalog from DummyJSON served locally by JSON Server. Dataset selection and license verification are pending. Routine runs will not depend on the public API.
+The demo dataset contains 194 sample products from
+[DummyJSON](https://dummyjson.com/docs/products).
+
+`api/catalog-source.json` preserves the downloaded API response.
+`api/db.json` contains the product collection prepared for JSON Server.
+Image URLs are retained as text; image files are not downloaded.
+
+The upstream project's MIT license is included in
+[api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
+
+The local API and ingestion pipeline are not implemented yet.
 
 ## Run the current version
 

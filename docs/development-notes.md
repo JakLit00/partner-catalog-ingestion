@@ -61,12 +61,28 @@ Connected to database: partner_catalog as user: catalog_app
 
 This verifies connectivity, password authentication and query execution. It does not yet verify ingestion behavior or failure recovery.
 
+## 5. Demo dataset preparation
+
+Downloaded the full product catalog from
+`https://dummyjson.com/products?limit=0` without field filtering.
+
+Preserved the response in `api/catalog-source.json` and created
+`api/db.json` with a single top-level `products` collection for JSON Server.
+Removed only the response-level pagination metadata; retained all product
+fields and nested structures. The prepared file uses UTF-8 without BOM.
+
+Verified that the source record count matched the API's reported total
+and that the prepared collection also contained 194 products.
+
+Included the upstream license in `api/DUMMYJSON-LICENSE.txt`.
+The committed snapshot will serve as a fixed demo source, avoiding
+downloads from the public API during normal project execution.
+
 ## Current limitations
 
-- The REST API, product dataset, product table, importer and automated tests are not implemented yet.
+- The local REST API, product table, importer and automated tests are not implemented yet.
 - The Python connection check runs locally; only PostgreSQL is currently containerized.
 - Verification has been manual on Windows. Clean-machine reproduction remains to be checked.
 - The database user created through `POSTGRES_USER` has superuser privileges. A separate least-privilege application role is not implemented.
 - Editing `.env` does not change credentials in an already initialized database.
 - Version pins improve repeatability, but do not guarantee indefinite compatibility or immutable image contents.
-
