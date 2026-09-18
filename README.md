@@ -29,7 +29,7 @@ Image URLs are retained as text; image files are not downloaded.
 The upstream project's MIT license is included in
 [api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
 
-The local API and ingestion pipeline are not implemented yet.
+The local API is available. The ingestion pipeline is not implemented yet.
 
 ## Run the current version
 
@@ -98,6 +98,33 @@ docker compose stop postgres
 ```
 
 Database files are retained in the named Docker volume. Start the service again with `docker compose up -d postgres`.
+
+## Running the local API
+
+Build and start the service:
+
+```powershell
+docker compose up -d --build api
+```
+
+Request the first page:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/products?_page=1&_limit=25"
+```
+
+The API serves a fixed catalog of 194 products in read-only mode.
+Pagination uses `_page` and `_limit`; the `X-Total-Count` response
+header provides the total record count.
+
+The initial image build requires internet access. After the image
+has been built, serving the catalog does not require DummyJSON.
+
+To stop the service:
+
+```powershell
+docker compose stop api
+```
 
 ## Verification and limitations
 

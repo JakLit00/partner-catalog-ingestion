@@ -78,10 +78,23 @@ Included the upstream license in `api/DUMMYJSON-LICENSE.txt`.
 The committed snapshot will serve as a fixed demo source, avoiding
 downloads from the public API during normal project execution.
 
+## 6. Local API service
+
+Added a Docker image using Node.js 22.23.2 and JSON Server 0.17.4.
+The image includes the prepared catalog and its upstream license.
+The server runs as a non-root user with read-only API access.
+
+Added the `api` service to Docker Compose and exposed it only
+on `127.0.0.1:3000`. The service does not depend on PostgreSQL.
+
+Manually verified HTTP 200, a first page of 25 products and
+`X-Total-Count: 194`. The second page contained 25 products,
+starting at ID 26; the eighth page contained the remaining 19.
+
 ## Current limitations
 
 - The local REST API, product table, importer and automated tests are not implemented yet.
-- The Python connection check runs locally; only PostgreSQL is currently containerized.
+- The Python connection check runs locally; PostgreSQL and the API are containerized.
 - Verification has been manual on Windows. Clean-machine reproduction remains to be checked.
 - The database user created through `POSTGRES_USER` has superuser privileges. A separate least-privilege application role is not implemented.
 - Editing `.env` does not change credentials in an already initialized database.
