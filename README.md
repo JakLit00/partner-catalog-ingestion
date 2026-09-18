@@ -6,7 +6,7 @@ A Python project for importing a partner's product catalog from a REST API into 
 
 A company needs a structured local copy of a partner's product catalog for internal applications. The planned importer will fetch all API pages, retain raw responses, validate records and load valid products without creating duplicates on repeated imports.
 
-**Under development:** local PostgreSQL setup and a Python connection check are implemented and manually verified. The API, dataset, ingestion pipeline, product table and automated tests are not implemented yet.
+**Under development:** local PostgreSQL setup, a Python connection check and a fixed 194-product dataset are available. The API, ingestion pipeline, product table and automated tests are not implemented yet.
 
 ## Planned data flow
 
@@ -19,7 +19,17 @@ flowchart TD
     D -->|Invalid records| F[Rejected records with reasons]
 ```
 
-The demo is planned to use a fixed sample catalog from DummyJSON served locally by JSON Server. Dataset selection and license verification are pending. Routine runs will not depend on the public API.
+The demo dataset contains 194 sample products from
+[DummyJSON](https://dummyjson.com/docs/products).
+
+`api/catalog-source.json` preserves the downloaded API response.
+`api/db.json` contains the product collection prepared for JSON Server.
+Image URLs are retained as text; image files are not downloaded.
+
+The upstream project's MIT license is included in
+[api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
+
+The local API is available. The ingestion pipeline is not implemented yet.
 
 ## Run the current version
 
@@ -88,6 +98,33 @@ docker compose stop postgres
 ```
 
 Database files are retained in the named Docker volume. Start the service again with `docker compose up -d postgres`.
+
+## Running the local API
+
+Build and start the service:
+
+```powershell
+docker compose up -d --build api
+```
+
+Request the first page:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/products?_page=1&_limit=25"
+```
+
+The API serves a fixed catalog of 194 products in read-only mode.
+Pagination uses `_page` and `_limit`; the `X-Total-Count` response
+header provides the total record count.
+
+The initial image build requires internet access. After the image
+has been built, serving the catalog does not require DummyJSON.
+
+To stop the service:
+
+```powershell
+docker compose stop api
+```
 
 ## Verification and limitations
 
