@@ -4,48 +4,40 @@ A Python project for importing a partner's product catalog from a REST API into 
 
 ## Purpose and status
 
-A company needs a structured local copy of a partner's product catalog for internal applications. The planned importer will fetch all API pages, retain raw responses, validate records and load valid products without creating duplicates on repeated imports.
+A company needs a structured local copy of a partner's product catalog for internal applications. The importer is being built to fetch all API pages, retain raw responses, validate records and load valid products without creating duplicates on repeated imports.
 
-**Under development:** local PostgreSQL setup, a Python connection check and a fixed 194-product dataset are available. The API, ingestion pipeline, product table and automated tests are not implemented yet.
+**Implemented:** a fixed local REST API with 194 products, PostgreSQL connectivity, paginated extraction with timeout and bounded retries, JSON logging, raw-response files and four automated tests.
 
-## Planned data flow
+**Next:** record validation and transformation, rejected-record output, a product table and database loading. The extraction script does not yet write products to PostgreSQL.
+
+## Data flow
 
 ```mermaid
 flowchart TD
-    A[Local REST API] --> B[Python importer]
+    A[Local REST API] --> B[Python extractor]
     B --> C[Raw JSON responses]
-    B --> D[Validation and transformation]
-    D -->|Valid records| E[PostgreSQL]
-    D -->|Invalid records| F[Rejected records with reasons]
+    B -.-> D[Validation and transformation: planned]
+    D -.->|Valid records| E[PostgreSQL loading: planned]
+    D -.->|Invalid records| F[Rejected records: planned]
 ```
 
-The demo dataset contains 194 sample products from
-[DummyJSON](https://dummyjson.com/docs/products).
+The dataset is a committed snapshot of 194 sample products from [DummyJSON](https://dummyjson.com/docs/products). `api/catalog-source.json` preserves the source response; `api/db.json` contains the collection served by JSON Server. Image URLs remain text; images are not downloaded. The upstream MIT license is included in [api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
 
-`api/catalog-source.json` preserves the downloaded API response.
-`api/db.json` contains the product collection prepared for JSON Server.
-Image URLs are retained as text; image files are not downloaded.
+## Run locally
 
-The upstream project's MIT license is included in
-[api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
+The commands below have been verified using **Windows PowerShell** and run from the project directory. Windows and Linux are target platforms; Linux verification is pending.
 
-The local API is available. The ingestion pipeline is not implemented yet.
+**Requirements:** Python 3.13 and Docker with Docker Compose. Docker Desktop must be running with Linux containers on Windows. Initial dependency installation and image builds require internet access. Normal extraction uses the local API without contacting DummyJSON.
 
-## Run the current version
+### 1. Configure the environment
 
-These instructions target **Windows PowerShell** and should be run from the project directory.
-
-**Requirements:** Python 3.13 and Docker with Docker Compose. Docker Desktop must be running with Linux containers. Internet access is required to download dependencies and the PostgreSQL image on initial setup.
-
-### 1. Configure the database
-
-On first setup, copy the template:
+On first setup:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-If `.env` already exists, keep it instead of overwriting it. Set your own local database password in `.env` and check these values:
+Keep an existing `.env` instead of overwriting it. Set your own local password and check these settings:
 
 ```dotenv
 POSTGRES_DB=partner_catalog
@@ -53,86 +45,73 @@ POSTGRES_USER=catalog_app
 POSTGRES_PASSWORD=replace_with_your_local_password
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5433
+API_BASE_URL=http://127.0.0.1:3000
+API_TIMEOUT_SECONDS=10
 ```
 
-`.env` is ignored by Git; `.env.example` contains placeholders only. Database credentials are applied on first initialization of an empty data volume. Editing `.env` later does not change an existing database password.
+`.env` is ignored by Git. Changing its database credentials does not update an already initialized database.
 
-### 2. Install Python dependencies
+### 2. Install dependencies
 
-Create the virtual environment if it does not exist, then install dependencies:
+Create the virtual environment if it does not exist, then install runtime dependencies:
 
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Using the explicit interpreter path avoids requiring terminal activation.
+The explicit interpreter path avoids requiring terminal activation.
 
-### 3. Start and check PostgreSQL
+### 3. Start the services
 
 ```powershell
-docker compose up -d postgres
+docker compose up -d --build
 docker compose exec postgres pg_isready -U catalog_app -d partner_catalog
 ```
 
-Wait until the readiness check reports `accepting connections`. The database is exposed only on `127.0.0.1:5433`; port `5432` is used inside the container.
+Wait until PostgreSQL reports `accepting connections`. PostgreSQL is exposed at `127.0.0.1:5433`; the read-only API is exposed at `127.0.0.1:3000`.
 
-### 4. Run the Python connection check
+The API uses `_page` and `_limit` for pagination and returns the total count in `X-Total-Count`. The extractor requests pages until it receives an empty list.
+
+### 4. Check connectivity and extract the catalog
 
 ```powershell
 .\.venv\Scripts\python.exe check_connection.py
+.\.venv\Scripts\python.exe extract.py
 ```
 
-Expected output with the example database and user names:
+The connection check should report `partner_catalog` and `catalog_app`. Successful extraction emits a JSON log with `message: "Catalog extraction completed"` and `product_count: 194`.
 
-```text
-Connected to database: partner_catalog as user: catalog_app
-```
+Each extraction creates a UTC timestamp directory under `data/raw/`. With a page size of 25, the current dataset produces eight populated files and a ninth file containing `[]`. Response text is saved as UTF-8 before JSON parsing, after checking the HTTP status. Generated files are ignored by Git.
 
-The script loads configuration, connects with a five-second connection timeout and executes `SELECT current_database(), current_user;`. It does not import products.
+Handled request errors and invalid response structures produce an `ERROR` log with exception details and exit code `1`. A failed run can leave partial raw output.
 
-To stop PostgreSQL:
+To stop both services while retaining database data:
 
 ```powershell
-docker compose stop postgres
+docker compose stop
 ```
 
-Database files are retained in the named Docker volume. Start the service again with `docker compose up -d postgres`.
+Restart them with `docker compose up -d`.
 
-## Running the local API
+## Tests
 
-Build and start the service:
+Install development dependencies and run the suite:
 
 ```powershell
-docker compose up -d --build api
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -v
 ```
 
-Request the first page:
+The four tests cover list responses, rejection of non-list responses, propagation of HTTP errors and preservation of response text in raw files. HTTP responses are mocked and files use temporary directories; the suite does not require Docker or a running API. It does not yet verify retries or multi-page extraction automatically.
 
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:3000/products?_page=1&_limit=25"
-```
+## Current limitations
 
-The API serves a fixed catalog of 194 products in read-only mode.
-Pagination uses `_page` and `_limit`; the `X-Total-Count` response
-header provides the total record count.
+- Product validation, transformation, rejected-record output and database loading are not implemented yet.
+- Execution and tests have been verified on Windows only. Linux and clean-environment reproduction remain to be checked; Python runs in a local virtual environment.
+- The local PostgreSQL user created through `POSTGRES_USER` has superuser privileges. A separate least-privilege application role is not implemented.
+- Version pins improve repeatability but do not guarantee indefinite compatibility or immutable image contents.
 
-The initial image build requires internet access. After the image
-has been built, serving the catalog does not require DummyJSON.
+## Development notes
 
-To stop the service:
-
-```powershell
-docker compose stop api
-```
-
-## Verification and limitations
-
-- The connection check is a manual smoke check, not an automated test suite. Automated tests are planned.
-- Only the Windows/PowerShell workflow has been manually verified so far. The Python script currently runs in a local virtual environment, not a container.
-- This is a local demo configuration. The official PostgreSQL image creates `POSTGRES_USER` as a database superuser; application-specific least-privilege access is not implemented yet.
-- Pinned package versions and a specific PostgreSQL image tag improve repeatability, but do not guarantee indefinite compatibility with future systems or identical image bytes.
-
-## Documentation
-
-[Development notes](docs/development-notes.md) record implementation stages, decisions, issues and verification results. This README remains the entry point for running the project.
+[Development notes](docs/development-notes.md) describe implementation decisions and verification results.
