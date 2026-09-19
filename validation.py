@@ -20,5 +20,12 @@ def validate_product(product: object) -> list[str]:
             errors.append(f"Field '{field}' must be a string.")
         elif not value.strip():
             errors.append(f"Field '{field}' must not be empty.")
-            
+
+    stock = product.get("stock")
+
+    if isinstance(stock, bool) or not isinstance(stock, int):
+        errors.append("Field 'stock' must be an integer.")
+    elif stock < 0:
+        errors.append("Field 'stock' must not be negative.")
+        
     return errors
