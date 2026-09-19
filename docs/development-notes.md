@@ -6,7 +6,7 @@ Implementation milestones, key decisions and verification results for Partner Ca
 
 The project will import a partner's product catalog from a REST API into PostgreSQL. Its scope covers paginated extraction, raw-response retention, validation, database loading and error handling.
 
-A fixed sample dataset served through a local API is planned to make demonstrations repeatable without depending on a public service. Dataset selection, license verification and API setup are pending. Analytics, price history and a storefront are outside the scope.
+A fixed sample dataset served through a local API makes demonstrations repeatable without depending on a public service. Analytics, price history and a storefront are outside the scope. Windows and Linux are target platforms; both must be verified before claiming cross-platform support.
 
 ## 2. Repository and Python environment
 
@@ -39,13 +39,7 @@ Added `check_connection.py` on `feature/python-postgres` to verify host-to-conta
 
 The script loads `.env` relative to its own location, while preserving environment variables already supplied by the runtime. It uses Psycopg 3, a five-second connection timeout and context managers to release the cursor and connection.
 
-Dependencies are recorded in `requirements.txt`:
-
-- `psycopg[binary]==3.3.5`
-- `python-dotenv==1.2.3`
-- `tzdata==2026.4`
-
-The binary Psycopg distribution avoids a local compilation requirement. Installation from `requirements.txt` completed successfully.
+Runtime dependencies are pinned in `requirements.txt`. The binary Psycopg distribution avoids a local compilation requirement. Installation from the dependency file completed successfully.
 
 ### Result handling
 
@@ -91,11 +85,42 @@ Manually verified HTTP 200, a first page of 25 products and
 `X-Total-Count: 194`. The second page contained 25 products,
 starting at ID 26; the eighth page contained the remaining 19.
 
+## 7. Catalog extraction
+
+Implemented `extract.py` using Requests and a reusable session. API URL and timeout come from environment configuration. The extractor requests 25 products per page, checks HTTP status and requires a JSON list. It stops on an empty page. Record-level validation remains a separate, planned step.
+
+Configured `urllib3.util.Retry` through HTTP adapters instead of adding a separate retry library. The policy allows up to three retries for GET requests, with exponential backoff and retryable statuses 429, 500, 502, 503 and 504. The final HTTP response is checked by `raise_for_status()`.
+
+Used standard Python logging with `python-json-logger` for structured output. Request exceptions and `ValueError` reach the entry-point handler, which logs the failure with exception details and exits with code 1. The success log records the extracted product count.
+
+### Raw responses
+
+Each run receives a UTC timestamp directory under `data/raw/`. Pages are saved as numbered JSON files after the HTTP status check and before parsing. The terminal empty page is retained as part of the received responses.
+
+Response text is written as UTF-8 with newline translation disabled. `pathlib` avoids platform-specific path construction. Raw output is ignored by Git; the fixed source dataset remains versioned. A failed extraction may leave a partial run directory.
+
+### Verification
+
+Manually verified successful extraction of all 194 products. Stopping the API produced retry warnings followed by a structured error log. Restarting the service restored successful extraction. This verifies connection-failure handling; recovery from an actual HTTP 503 response has not yet been exercised.
+
+## 8. Automated tests
+
+Added pytest through `requirements-dev.txt`, which also includes runtime dependencies from `requirements.txt`. Tests use `unittest.mock` for HTTP responses and pytest temporary directories for file output.
+
+Four tests passed on Windows:
+
+- A list response is returned unchanged.
+- A non-list response raises `ValueError`.
+- An HTTP error propagates without parsing JSON or writing a raw page.
+- Raw files preserve response text, including Unicode and newline characters, as UTF-8.
+
+The HTTP-error test simulates an exception from `raise_for_status()`; it does not exercise the retry adapter. Automated pagination, retry and full-pipeline verification remain pending.
+
 ## Current limitations
 
-- The local REST API, product table, importer and automated tests are not implemented yet.
-- The Python connection check runs locally; PostgreSQL and the API are containerized.
-- Verification has been manual on Windows. Clean-machine reproduction remains to be checked.
+- Product validation, transformation, rejected-record output and PostgreSQL loading remain unimplemented.
+- Python runs locally; PostgreSQL and the API are containerized.
+- Linux and clean-environment reproduction remain to be checked.
 - The database user created through `POSTGRES_USER` has superuser privileges. A separate least-privilege application role is not implemented.
 - Editing `.env` does not change credentials in an already initialized database.
-- Version pins improve repeatability, but do not guarantee indefinite compatibility or immutable image contents.
+- Version pins improve repeatability but do not guarantee indefinite compatibility or immutable image contents.
