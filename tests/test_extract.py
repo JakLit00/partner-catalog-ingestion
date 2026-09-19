@@ -55,3 +55,23 @@ def test_save_raw_page_preserves_response_text(tmp_path: Path) -> None:
     saved_file = output_dir / "page_0001.json"
 
     assert saved_file.read_bytes() == response_text.encode("utf-8")
+
+def test_fetch_page_propagates_http_error(tmp_path: Path) -> None:
+    session = Mock(spec=requests.Session)
+    response = session.get.return_value
+    response.raise_for_status.side_effect = requests.HTTPError(
+        "503 Server Error: Service Unavailable"
+    )
+
+    with pytest.raises(requests.HTTPError):
+        fetch_page(
+            session=session,
+            base_url="http://catalog.test",
+            page=1,
+            page_size=25,
+            timeout=10,
+            output_dir=tmp_path,
+        )
+
+    response.json.assert_not_called()
+    assert list(tmp_path.iterdir()) == []
