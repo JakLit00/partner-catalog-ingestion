@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -9,6 +10,7 @@ from pythonjsonlogger.json import JsonFormatter
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+from validation import validate_product
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,22 @@ def fetch_page(
 
     return products
 
+def save_rejected_products(
+    rejected_products: list,
+    output_path: Path,
+) -> None:
+    """Save rejected source records together with validation errors."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8", newline="\n") as file:
+        json.dump(
+            rejected_products,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+        file.write("\n")
 
 def main() -> None:
     handler = logging.StreamHandler()
@@ -108,9 +126,32 @@ def main() -> None:
             all_products.extend(products)
             page += 1
 
+        valid_products = []
+    rejected_products = []
+
+    for product in all_products:
+        errors = validate_product(product)
+
+        if errors:
+            rejected_products.append(
+                {
+                    "record": product,
+                    "errors": errors,
+                }
+            )
+        else:
+            valid_products.append(product)
+
+    rejected_path = env_path.parent / "data" / "rejected" / f"{run_id}.json"
+    save_rejected_products(rejected_products, rejected_path)
+
     logger.info(
-        "Catalog extraction completed",
-        extra={"product_count": len(all_products)},
+        "Catalog extraction and validation completed",
+        extra={
+            "product_count": len(all_products),
+            "valid_count": len(valid_products),
+            "rejected_count": len(rejected_products),
+        },
     )
 
 
