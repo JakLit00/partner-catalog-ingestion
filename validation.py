@@ -1,3 +1,6 @@
+import math
+
+
 def validate_product(product: object) -> list[str]:
     """Return validation errors for a source product record."""
 
@@ -27,5 +30,14 @@ def validate_product(product: object) -> list[str]:
         errors.append("Field 'stock' must be an integer.")
     elif stock < 0:
         errors.append("Field 'stock' must not be negative.")
-        
+
+    price = product.get("price")
+
+    if isinstance(price, bool) or not isinstance(price, (int, float)):
+        errors.append("Field 'price' must be a number.")
+    elif isinstance(price, float) and not math.isfinite(price):
+        errors.append("Field 'price' must be finite.")
+    elif price < 0:
+        errors.append("Field 'price' must not be negative.")
+
     return errors

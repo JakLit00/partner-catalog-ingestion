@@ -9,6 +9,7 @@ def test_validate_product_accepts_positive_integer_id() -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": 10,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -39,6 +40,7 @@ def test_validate_product_rejects_invalid_id_type(product: dict) -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": 10,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -53,6 +55,7 @@ def test_validate_product_rejects_non_positive_id(product_id: int) -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": 10,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -71,6 +74,7 @@ def test_validate_product_rejects_invalid_text_fields(
         "title": "Test product",
         "category": "beauty",
         "stock": 10,
+        "price": 19.99,
     }
     product[field] = value
 
@@ -91,6 +95,7 @@ def test_validate_product_accepts_non_negative_stock(stock: int) -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": stock,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -105,6 +110,7 @@ def test_validate_product_rejects_invalid_stock_type(stock: object) -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": stock,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -118,6 +124,7 @@ def test_validate_product_rejects_negative_stock() -> None:
         "title": "Test product",
         "category": "beauty",
         "stock": -1,
+        "price": 19.99,
     }
 
     errors = validate_product(product)
@@ -130,8 +137,67 @@ def test_validate_product_rejects_missing_stock() -> None:
         "id": 1,
         "title": "Test product",
         "category": "beauty",
+        "price": 19.99,
     }
 
     errors = validate_product(product)
 
     assert errors == ["Field 'stock' must be an integer."]
+
+@pytest.mark.parametrize("price", [0, 0.0, 20, 19.99])
+def test_validate_product_accepts_valid_price(price: int | float) -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "stock": 10,
+        "price": price,
+    }
+
+    errors = validate_product(product)
+
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("price", "expected_error"),
+    [
+        (None, "Field 'price' must be a number."),
+        ("19.99", "Field 'price' must be a number."),
+        (True, "Field 'price' must be a number."),
+        (False, "Field 'price' must be a number."),
+        (-1, "Field 'price' must not be negative."),
+        (-0.01, "Field 'price' must not be negative."),
+        (float("inf"), "Field 'price' must be finite."),
+        (float("-inf"), "Field 'price' must be finite."),
+        (float("nan"), "Field 'price' must be finite."),
+    ],
+)
+def test_validate_product_rejects_invalid_price(
+    price: object,
+    expected_error: str,
+) -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "stock": 10,
+        "price": price,
+    }
+
+    errors = validate_product(product)
+
+    assert errors == [expected_error]
+
+
+def test_validate_product_rejects_missing_price() -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "stock": 10,
+    }
+
+    errors = validate_product(product)
+
+    assert errors == ["Field 'price' must be a number."]
