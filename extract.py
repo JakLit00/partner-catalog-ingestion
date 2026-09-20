@@ -88,6 +88,30 @@ def main() -> None:
     env_path = Path(__file__).resolve().parent / ".env"
     load_dotenv(env_path, override=False)
 
+    required_variables = (
+        "API_BASE_URL",
+        "API_TIMEOUT_SECONDS",
+        "POSTGRES_HOST",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+    )
+
+    missing_variables = []
+
+    for name in required_variables:
+        value = os.environ.get(name)
+
+        if value is None or not value.strip():
+            missing_variables.append(name)
+
+    if missing_variables:
+        raise ValueError(
+            "Missing required configuration variables: "
+            + ", ".join(missing_variables)
+        )
+
     base_url = os.environ["API_BASE_URL"].rstrip("/")
     timeout = float(os.environ["API_TIMEOUT_SECONDS"])
 
@@ -129,7 +153,7 @@ def main() -> None:
             all_products.extend(products)
             page += 1
 
-        valid_products = []
+    valid_products = []
     rejected_products = []
 
     for product in all_products:
@@ -161,6 +185,7 @@ def main() -> None:
     logger.info(
         "Catalog ingestion completed",
         extra={
+            "run_id": run_id,
             "product_count": len(all_products),
             "valid_count": len(valid_products),
             "rejected_count": len(rejected_products),
@@ -172,6 +197,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (requests.RequestException, ValueError, psycopg.Error):
+    except (requests.RequestException, ValueError, psycopg.Error, OSError):
         logger.exception("Catalog ingestion failed")
         raise SystemExit(1)
