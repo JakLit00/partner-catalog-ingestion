@@ -1,10 +1,12 @@
+import json
+
 from unittest.mock import Mock
 from pathlib import Path
 
 import pytest
 import requests
 
-from extract import fetch_page, save_raw_page
+from extract import fetch_page, save_raw_page, save_rejected_products
 
 
 def test_fetch_page_rejects_non_list_response(tmp_path: Path) -> None:
@@ -75,3 +77,26 @@ def test_fetch_page_propagates_http_error(tmp_path: Path) -> None:
 
     response.json.assert_not_called()
     assert list(tmp_path.iterdir()) == []
+
+def test_save_rejected_products_preserves_records_and_errors(
+    tmp_path: Path,
+) -> None:
+    rejected_products = [
+        {
+            "record": {
+                "id": 1,
+                "title": "Żółty plecak",
+                "category": "bags",
+                "stock": -1,
+                "price": 19.99,
+            },
+            "errors": ["Field 'stock' must not be negative."],
+        }
+    ]
+    output_path = tmp_path / "rejected" / "test_run.json"
+
+    save_rejected_products(rejected_products, output_path)
+
+    saved_products = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert saved_products == rejected_products
