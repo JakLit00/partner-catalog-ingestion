@@ -5,6 +5,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 import requests
+import psycopg
+from loading import load_products
 from dotenv import load_dotenv
 from pythonjsonlogger.json import JsonFormatter
 from requests.adapters import HTTPAdapter
@@ -146,12 +148,23 @@ def main() -> None:
     rejected_path = env_path.parent / "data" / "rejected" / f"{run_id}.json"
     save_rejected_products(rejected_products, rejected_path)
 
+    with psycopg.connect(
+        host=os.environ["POSTGRES_HOST"],
+        port=int(os.environ["POSTGRES_PORT"]),
+        dbname=os.environ["POSTGRES_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+        connect_timeout=5,
+    ) as connection:
+        load_products(connection, valid_products)
+
     logger.info(
-        "Catalog extraction, validation and transformation completed",
+        "Catalog ingestion completed",
         extra={
             "product_count": len(all_products),
             "valid_count": len(valid_products),
             "rejected_count": len(rejected_products),
+            "loaded_count": len(valid_products),
         },
     )
 
@@ -159,6 +172,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (requests.RequestException, ValueError):
-        logger.exception("Catalog extraction failed")
+    except (requests.RequestException, ValueError, psycopg.Error):
+        logger.exception("Catalog ingestion failed")
         raise SystemExit(1)
