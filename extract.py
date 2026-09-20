@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import math
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -113,7 +114,30 @@ def main() -> None:
         )
 
     base_url = os.environ["API_BASE_URL"].rstrip("/")
-    timeout = float(os.environ["API_TIMEOUT_SECONDS"])
+
+    try:
+        timeout = float(os.environ["API_TIMEOUT_SECONDS"])
+    except ValueError:
+        raise ValueError(
+            "API_TIMEOUT_SECONDS must be a positive finite number."
+        ) from None
+
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(
+            "API_TIMEOUT_SECONDS must be a positive finite number."
+        )
+
+    try:
+        postgres_port = int(os.environ["POSTGRES_PORT"])
+    except ValueError:
+        raise ValueError(
+            "POSTGRES_PORT must be an integer between 1 and 65535."
+        ) from None
+
+    if not 1 <= postgres_port <= 65535:
+        raise ValueError(
+            "POSTGRES_PORT must be an integer between 1 and 65535."
+        )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
     output_dir = env_path.parent / "data" / "raw" / run_id
@@ -174,7 +198,7 @@ def main() -> None:
 
     with psycopg.connect(
         host=os.environ["POSTGRES_HOST"],
-        port=int(os.environ["POSTGRES_PORT"]),
+        port=postgres_port,
         dbname=os.environ["POSTGRES_DB"],
         user=os.environ["POSTGRES_USER"],
         password=os.environ["POSTGRES_PASSWORD"],
