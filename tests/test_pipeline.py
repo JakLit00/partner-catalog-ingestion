@@ -99,6 +99,7 @@ def test_main_fetches_all_pages_before_loading(
 def test_main_does_not_load_products_when_later_page_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     configuration = {
         "API_BASE_URL": "http://catalog.test",
@@ -143,11 +144,12 @@ def test_main_does_not_load_products_when_later_page_fails(
     monkeypatch.setattr(extract.psycopg, "connect", connect)
     monkeypatch.setattr(extract, "load_products", load_products)
 
-    with pytest.raises(
-        requests.ConnectionError,
-        match="Simulated connection failure",
-    ):
-        extract.main()
+    with caplog.at_level("ERROR", logger=extract.logger.name):
+        with pytest.raises(
+            requests.ConnectionError,
+            match="Simulated connection failure",
+        ):
+            extract.main()
 
     requested_pages = [
         request.kwargs["params"]["_page"]
@@ -163,6 +165,23 @@ def test_main_does_not_load_products_when_later_page_fails(
     assert len(raw_files) == 1
     assert raw_files[0].name == "page_0001.json"
     assert json.loads(raw_files[0].read_text(encoding="utf-8")) == [product]
+
+    failure_logs = [
+        record
+        for record in caplog.records
+        if record.name == extract.logger.name
+        and record.getMessage() == "Catalog ingestion failed"
+    ]
+
+    assert len(failure_logs) == 1
+
+    failure = failure_logs[0]
+
+    assert failure.levelname == "ERROR"
+    assert failure.__dict__["stage"] == "extraction"
+    assert failure.__dict__["page"] == 2
+    assert failure.__dict__["run_id"] == raw_files[0].parent.name
+    assert failure.exc_info is not None
 
 def test_main_loads_valid_products_and_saves_rejected_records(
     monkeypatch: pytest.MonkeyPatch,
