@@ -201,3 +201,34 @@ def test_validate_product_rejects_missing_price() -> None:
     errors = validate_product(product)
 
     assert errors == ["Field 'price' must be a number."]
+
+@pytest.mark.parametrize("field", ["id", "stock"])
+def test_validate_product_accepts_bigint_max(field: str) -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "price": 19.99,
+        "stock": 10,
+    }
+    product[field] = 9_223_372_036_854_775_807
+
+    errors = validate_product(product)
+
+    assert errors == []
+
+
+@pytest.mark.parametrize("field", ["id", "stock"])
+def test_validate_product_rejects_bigint_overflow(field: str) -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "price": 19.99,
+        "stock": 10,
+    }
+    product[field] = 9_223_372_036_854_775_808
+
+    errors = validate_product(product)
+
+    assert errors == [f"Field '{field}' exceeds the BIGINT range."]
