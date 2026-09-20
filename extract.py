@@ -57,20 +57,42 @@ def fetch_page(
 
     return products
 
+def make_json_safe(value: object) -> object:
+    """Represent non-finite numbers as strings in rejection reports."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        if math.isnan(value):
+            return "NaN"
+        return "Infinity" if value > 0 else "-Infinity"
+
+    if isinstance(value, dict):
+        return {
+            key: make_json_safe(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, list):
+        return [make_json_safe(item) for item in value]
+
+    return value
+
+
 def save_rejected_products(
     rejected_products: list,
     output_path: Path,
 ) -> None:
-    """Save rejected source records together with validation errors."""
+    """Save rejected records and errors as standards-compliant JSON."""
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_products = make_json_safe(rejected_products)
 
     with output_path.open("w", encoding="utf-8", newline="\n") as file:
         json.dump(
-            rejected_products,
+            safe_products,
             file,
             ensure_ascii=False,
             indent=2,
+            allow_nan=False,
         )
         file.write("\n")
 
