@@ -11,6 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
 from validation import validate_product
+from transformation import transform_product
 
 logger = logging.getLogger(__name__)
 
@@ -140,13 +141,13 @@ def main() -> None:
                 }
             )
         else:
-            valid_products.append(product)
+            valid_products.append(transform_product(product))
 
     rejected_path = env_path.parent / "data" / "rejected" / f"{run_id}.json"
     save_rejected_products(rejected_products, rejected_path)
 
     logger.info(
-        "Catalog extraction and validation completed",
+        "Catalog extraction, validation and transformation completed",
         extra={
             "product_count": len(all_products),
             "valid_count": len(valid_products),
