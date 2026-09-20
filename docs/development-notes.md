@@ -1,126 +1,113 @@
 # Development Notes
 
-Implementation milestones, key decisions and verification results for Partner Catalog Ingestion.
+The implementation was built in stages: local infrastructure, source extraction, validation and transformation, database loading, then verification on Windows and Linux. Each stage established a working boundary before the next was connected.
 
-## 1. Project scope
+## 1. Scope and source contract
 
-The project will import a partner's product catalog from a REST API into PostgreSQL. Its scope covers paginated extraction, raw-response retention, validation, database loading and error handling.
+The scenario is a local copy of a partner catalog for applications that need product names, categories, prices and stock levels. The source owns the product ID. Repeated imports refresh that ID rather than append another version of the same product.
 
-A fixed sample dataset served through a local API makes demonstrations repeatable without depending on a public service. Analytics, price history and a storefront are outside the scope. Windows and Linux are target platforms; both must be verified before claiming cross-platform support.
+A fixed DummyJSON snapshot provides realistic nested records without requiring a data-generation project. The full response was retained in `api/catalog-source.json`; `api/db.json` removes only the response-level pagination wrapper and keeps the product fields. Both collections contain 194 records. The source license is retained alongside them.
 
-## 2. Repository and Python environment
+JSON Server 0.17.4 serves this snapshot in read-only mode. Its page contract is `_page` and `_limit`, rather than DummyJSON's pagination parameters. Requests receive a JSON list and an `X-Total-Count` header. The importer uses an empty list as the end condition; it does not reconcile its count against the header. A fixed dataset avoids changes between pages during a demonstration.
 
-Initialized a local Git repository with `main` as the primary branch. Implementation changes are developed on feature branches and reviewed through staged diffs before committing. GitHub publication is deferred until a working version is ready.
+The API image uses Node.js 22.23.2, contains the dataset and license, and runs as the non-root `node` user. Node.js is a container dependency, not a requirement for the host Python environment.
 
-Created a Python 3.13 virtual environment and selected it in VS Code. Confirmed that the terminal resolves Python to the project's `.venv` directory.
+## 2. Repository and local services
 
-Added `.gitignore` rules for credentials, virtual environments, caches and generated output. The shared `.env.example` provides configuration placeholders; `.env` remains local and untracked.
+Work was committed in feature branches and merged into `main` with explicit merge commits. The repository keeps source data and schema definitions, while `.gitignore` excludes `.env`, virtual environments, caches and generated output. `.gitattributes` normalizes tracked text to LF across systems.
 
-Added `.gitattributes` to normalize text files to LF across operating systems and avoid line-ending-only diffs.
+Docker Compose provides the API and PostgreSQL 16.15. Both host bindings use loopback addresses: `127.0.0.1:3000` for the API and `127.0.0.1:5433` for PostgreSQL. PostgreSQL still listens on port 5432 inside its container. The alternate host port reduces collisions with a host database installation.
 
-## 3. Local PostgreSQL service
+A named `postgres_data` volume preserves database contents across container replacement. Initialization credentials apply only to an empty volume; an edited `.env` is not a password-rotation mechanism. The account created by `POSTGRES_USER` is a superuser, which is an explicit local-demo trade-off.
 
-Added a Docker Compose service using `postgres:16.15-bookworm`.
+`check_connection.py` established connectivity before ingestion was added. It checks the database and user with `SELECT current_database(), current_user;`, uses a five-second connection timeout and closes database resources through context managers.
 
-Key decisions:
+## 3. Configuration and extraction
 
-- Use a specific image tag rather than `latest` to reduce unintended version changes.
-- Bind the host port to `127.0.0.1:5433`, keeping access local and reducing conflicts with an existing PostgreSQL installation.
-- Store database files in a named volume so they survive container replacement.
-- Require database settings through Compose variable checks instead of silently accepting missing values.
+Python resolves `.env` relative to the script, so launching from another working directory does not change which configuration or output directory is used. Runtime environment variables take precedence because `load_dotenv` uses `override=False`.
 
-Validated configuration with `docker compose config --quiet`, confirmed startup in the container logs and executed a database identity query through `psql`. The query returned `partner_catalog` and `catalog_app`.
+Before extraction, all seven required settings are checked for missing or blank values. Their names can appear in an error, but the configuration check does not log their values. `API_TIMEOUT_SECONDS` is converted to a number for Requests; `POSTGRES_PORT` is converted before connecting to the database. Host ports remain fixed in Compose and must be kept consistent with client settings.
 
-The service configuration and startup instructions were committed and merged from `feature/local-postgres` into `main`.
+`extract.py` coordinates the run. A reusable Requests session retrieves 25 products per page, checks HTTP status and requires each parsed response to be a list. The 194-record snapshot yields seven full pages, one 19-record page and an empty ninth page.
 
-## 4. Python connection check
+HTTP retry behavior belongs to the session adapters. `urllib3.util.Retry` was used because it integrates with Requests without adding a general-purpose retry dependency. The configuration allows three retries for eligible failures, limits methods to GET, sets a backoff factor of 1 and lists 429, 500, 502, 503 and 504 as retryable statuses. The final response remains available for `raise_for_status()`. The adapter retains urllib3's default Retry-After behavior.
 
-Added `check_connection.py` on `feature/python-postgres` to verify host-to-container connectivity, authentication and SQL execution.
+The request timeout is not a deadline for the entire run. Retry delays and multiple requests extend total duration. The retry policy also does not imply that every possible failure while consuming a response body will be retried.
 
-The script loads `.env` relative to its own location, while preserving environment variables already supplied by the runtime. It uses Psycopg 3, a five-second connection timeout and context managers to release the cursor and connection.
+## 4. Raw output and rejected records
 
-Runtime dependencies are pinned in `requirements.txt`. The binary Psycopg distribution avoids a local compilation requirement. Installation from the dependency file completed successfully.
+A UTC timestamp identifies each run. Successful HTTP response bodies are saved before JSON parsing, allowing malformed content to be inspected if parsing fails. Files contain response text encoded as UTF-8 with newline translation disabled; they are not byte-for-byte captures of HTTP headers or compressed wire traffic.
 
-### Result handling
+The final empty page is retained because it records the response that ended extraction. Raw files live under `data/raw/<run_id>/`. They are written before the database transaction and remain available if a later stage fails.
 
-Static analysis identified that `fetchone()` can return `None`. Added an explicit guard that raises an error if the diagnostic query returns no row. The returned values are unpacked into named variables before display.
+Record validation returns a list of errors rather than raising an exception for each invalid product. This allows valid records to continue while rejected records retain their original content and reasons in `data/rejected/<run_id>.json`. An empty rejection list is written for a run with no rejected records.
 
-### Verification
+## 5. Validation and transformation
 
-Executed `SELECT current_database(), current_user;` from the local Python environment through port 5433. The script returned:
+The validated contract contains five fields:
 
-```text
-Connected to database: partner_catalog as user: catalog_app
-```
+- `id`: an integer from 1 to 9,223,372,036,854,775,807.
+- `title` and `category`: strings that contain non-whitespace content.
+- `stock`: an integer from 0 to 9,223,372,036,854,775,807.
+- `price`: a finite, nonnegative Python `int` or `float` from the parsed response.
 
-This verifies connectivity, password authentication and query execution. It does not yet verify ingestion behavior or failure recovery.
+Booleans are rejected explicitly because Python treats them as subclasses of `int`. Numeric strings are not silently converted. The integer limits match PostgreSQL `BIGINT`, preventing predictable database range errors from reaching the loading stage.
 
-## 5. Demo dataset preparation
+`transformation.py` accepts validated records and returns new dictionaries containing only the database fields. It trims outer whitespace and converts prices with `Decimal(str(value))`. This avoids converting the full binary approximation of a float directly into a decimal, but it cannot recover precision already lost during JSON parsing. PostgreSQL uses unconstrained `NUMERIC`, avoiding an arbitrary two-decimal rounding rule. The source does not supply a currency field, so none is assumed.
 
-Downloaded the full product catalog from
-`https://dummyjson.com/products?limit=0` without field filtering.
+Validation and transformation are separate functions so their contracts can be tested independently of HTTP, files and database access.
 
-Preserved the response in `api/catalog-source.json` and created
-`api/db.json` with a single top-level `products` collection for JSON Server.
-Removed only the response-level pagination metadata; retained all product
-fields and nested structures. The prepared file uses UTF-8 without BOM.
+## 6. Schema and transactional loading
 
-Verified that the source record count matched the API's reported total
-and that the prepared collection also contained 194 products.
+`sql/001_create_products.sql` defines the `products` table. Source IDs form the primary key. Required columns use `NOT NULL`; named checks enforce positive IDs, nonblank text, finite nonnegative prices and nonnegative stock. Python validates incoming data for useful rejection messages, while database constraints protect writes through any client.
 
-Included the upstream license in `api/DUMMYJSON-LICENSE.txt`.
-The committed snapshot will serve as a fixed demo source, avoiding
-downloads from the public API during normal project execution.
+`loading.py` receives an existing Psycopg connection and transformed records. Named SQL parameters keep values separate from SQL text. `executemany()` applies an `INSERT ... ON CONFLICT (id) DO UPDATE` for each product.
 
-## 6. Local API service
+The connection context in `extract.py` owns the transaction. It commits only after the loading function returns successfully and rolls back on an exception. The loader does not commit individual rows. The final success log is emitted after the connection context has completed.
 
-Added a Docker image using Node.js 22.23.2 and JSON Server 0.17.4.
-The image includes the prepared catalog and its upstream license.
-The server runs as a non-root user with read-only API access.
+Reimporting the same catalog leaves 194 rows. Incoming values replace the current values for matching IDs. This is an upsert, not a full snapshot replacement: missing or rejected source records do not delete old database rows, and price history is not retained.
 
-Added the `api` service to Docker Compose and exposed it only
-on `127.0.0.1:3000`. The service does not depend on PostgreSQL.
+## 7. Logging and failure handling
 
-Manually verified HTTP 200, a first page of 25 products and
-`X-Total-Count: 194`. The second page contained 25 products,
-starting at ID 26; the eighth page contained the remaining 19.
+Standard Python logging uses `python-json-logger` to produce JSON console output. The success event includes a UTC `run_id`, received count, valid count, rejected count and loaded count. The run ID matches the output paths. `loaded_count` includes both inserts and updates; it is not a database change count.
 
-## 7. Catalog extraction
+The entry point handles Requests errors, `ValueError`, Psycopg errors and `OSError`, logs exception details and exits with code 1. Missing settings are converted into `ValueError` at the configuration boundary. An unrelated `KeyError` is not mislabeled as a configuration issue.
 
-Implemented `extract.py` using Requests and a reusable session. API URL and timeout come from environment configuration. The extractor requests 25 products per page, checks HTTP status and requires a JSON list. It stops on an empty page. Record-level validation remains a separate, planned step.
+Logging is not a separate audit database. Error events do not currently include the run ID explicitly, files can remain after failed runs, and the implementation has no resume manifest. These boundaries keep the current batch workflow small and explicit.
 
-Configured `urllib3.util.Retry` through HTTP adapters instead of adding a separate retry library. The policy allows up to three retries for GET requests, with exponential backoff and retryable statuses 429, 500, 502, 503 and 504. The final HTTP response is checked by `raise_for_status()`.
+## 8. Windows and Linux verification
 
-Used standard Python logging with `python-json-logger` for structured output. Request exceptions and `ValueError` reach the entry-point handler, which logs the failure with exception details and exits with code 1. The success log records the extracted product count.
+The same code and pinned dependency files were exercised on Windows with Python 3.13.14 and Ubuntu 26.04 in WSL2 with Python 3.14.4. Docker Desktop supplied the containers in both cases; these were not two independent Docker hosts.
 
-### Raw responses
+For Linux verification, the committed repository was cloned into `~/projects/partner-catalog-ingestion`. A separate `.venv` was created with Ubuntu's Python. Windows virtual environments were not copied. The matching `python3.14-venv` package supplied `ensurepip` support, leaving the system Python version unchanged.
 
-Each run receives a UTC timestamp directory under `data/raw/`. Pages are saved as numbered JSON files after the HTTP status check and before parsing. The terminal empty page is retained as part of the received responses.
+Ubuntu's Docker access was enabled through [Docker Desktop WSL Integration](https://docs.docker.com/desktop/features/wsl/). When the socket belonged to `root:docker`, group membership was checked with `id`, `getent group docker` and `ls -l /var/run/docker.sock`. A fresh session was needed for the already configured group membership to take effect. Socket permissions were not made world-writable.
 
-Response text is written as UTF-8 with newline translation disabled. `pathlib` avoids platform-specific path construction. Raw output is ignored by Git; the fixed source dataset remains versioned. A failed extraction may leave a partial run directory.
+The Linux checkout needed its own `.env`, since secrets are not part of a Git clone. When connecting to an existing Docker volume, it used that database's credentials. A shared engine and the same Compose project name refer to the same containers and volume; moving the Python process to Linux alone does not create a clean database.
 
-### Verification
+To verify initialization separately, the ordinary services were stopped to release the ports. A separate Compose project named `partner-catalog-clean-check` created a new volume. The DDL was applied and the importer loaded 194 products. The check project was then stopped and the ordinary project restarted. No existing volume was deleted.
 
-Manually verified successful extraction of all 194 products. Stopping the API produced retry warnings followed by a structured error log. Restarting the service restored successful extraction. This verifies connection-failure handling; recovery from an actual HTTP 503 response has not yet been exercised.
+The final configuration and file-error handling changes were merged on Windows, pulled into the Linux checkout and checked again with pytest and a complete import.
 
-## 8. Automated tests
+## 9. Verification results
 
-Added pytest through `requirements-dev.txt`, which also includes runtime dependencies from `requirements.txt`. Tests use `unittest.mock` for HTTP responses and pytest temporary directories for file output.
+The pytest suite contains 53 cases: 47 validation cases, five extraction/file-output cases and one transformation case. HTTP responses use `unittest.mock`, and file tests use temporary directories. These tests run without Docker or network access to the API.
 
-Four tests passed on Windows:
+Additional checks exercised the operational boundaries:
 
-- A list response is returned unchanged.
-- A non-list response raises `ValueError`.
-- An HTTP error propagates without parsing JSON or writing a raw page.
-- Raw files preserve response text, including Unicode and newline characters, as UTF-8.
+- **Full import:** 194 received, 194 valid, zero rejected and 194 submitted to a committed transaction.
+- **Repeat import:** the database remained at 194 rows.
+- **Update behavior:** a manually changed price returned to the source value after another import.
+- **Rollback:** `check_rollback.py` sent a valid price update followed by an invalid stock value and verified the original row through a new connection. It passed on Windows and WSL2.
+- **API unavailable:** stopping the API produced retry warnings and a final error; restarting it restored successful imports.
+- **Missing configuration:** a blank password injected into a child process produced a named configuration error and exit code 1 without editing `.env`.
+- **File failure:** a mocked `PermissionError` from raw-file writing produced an error log and exit code 1 before database loading.
+- **Empty database:** a separate Compose project was initialized from DDL and loaded successfully under WSL2.
 
-The HTTP-error test simulates an exception from `raise_for_status()`; it does not exercise the retry adapter. Automated pagination, retry and full-pipeline verification remain pending.
+The mocked HTTP-error test checks propagation, not the retry adapter. Actual recovery from HTTP 503, automatic pagination tests and an automated database integration suite are outside the current test coverage. The empty-volume check used an existing Docker installation and available image cache; it was not a separate-machine provisioning test.
 
-## Current limitations
+## 10. Deliberate boundaries
 
-- Product validation, transformation, rejected-record output and PostgreSQL loading remain unimplemented.
-- Python runs locally; PostgreSQL and the API are containerized.
-- Linux and clean-environment reproduction remain to be checked.
-- The database user created through `POSTGRES_USER` has superuser privileges. A separate least-privilege application role is not implemented.
-- Editing `.env` does not change credentials in an already initialized database.
-- Version pins improve repeatability but do not guarantee indefinite compatibility or immutable image contents.
+The project stays focused on one local batch ingestion workflow. It does not require an orchestrator, distributed processing engine or cloud account. The complete source catalog is held in memory, appropriate for this fixed dataset.
+
+Dependency versions and image tags are pinned, but transitive dependencies and image digests are not fully locked. Raw and rejected files need manual retention management. Database constraints can reject unusual values beyond the application contract, in which case the whole load rolls back. These are concrete extension points rather than guarantees implied by the current implementation.
