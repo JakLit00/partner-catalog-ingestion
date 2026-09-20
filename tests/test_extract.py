@@ -100,3 +100,52 @@ def test_save_rejected_products_preserves_records_and_errors(
     saved_products = json.loads(output_path.read_text(encoding="utf-8"))
 
     assert saved_products == rejected_products
+
+@pytest.mark.parametrize(
+    ("value", "expected_text"),
+    [
+        (float("nan"), "NaN"),
+        (float("inf"), "Infinity"),
+        (float("-inf"), "-Infinity"),
+    ],
+)
+def test_save_rejected_products_converts_non_finite_numbers(
+    tmp_path: Path,
+    value: float,
+    expected_text: str,
+) -> None:
+    record = {
+        "id": 1,
+        "price": value,
+        "details": {
+            "values": [value, 10, "Original text", None],
+        },
+    }
+    errors = ["Field 'price' must be finite."]
+    rejected_products = [{"record": record, "errors": errors}]
+    output_path = tmp_path / "rejected" / "test_run.json"
+
+    save_rejected_products(rejected_products, output_path)
+
+    def reject_non_standard_constant(constant: str) -> None:
+        raise ValueError(f"Non-standard JSON constant: {constant}")
+
+    saved_products = json.loads(
+        output_path.read_text(encoding="utf-8"),
+        parse_constant=reject_non_standard_constant,
+    )
+
+    assert saved_products == [
+        {
+            "record": {
+                "id": 1,
+                "price": expected_text,
+                "details": {
+                    "values": [expected_text, 10, "Original text", None],
+                },
+            },
+            "errors": errors,
+        }
+    ]
+    assert record["price"] is value
+    assert record["details"]["values"][0] is value

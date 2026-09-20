@@ -232,3 +232,20 @@ def test_validate_product_rejects_bigint_overflow(field: str) -> None:
     errors = validate_product(product)
 
     assert errors == [f"Field '{field}' exceeds the BIGINT range."]
+
+@pytest.mark.parametrize("field", ["title", "category"])
+def test_validate_product_rejects_nul_in_text_fields(field: str) -> None:
+    product = {
+        "id": 1,
+        "title": "Test product",
+        "category": "beauty",
+        "price": 19.99,
+        "stock": 10,
+    }
+    product[field] = "Test\x00value"
+
+    errors = validate_product(product)
+
+    assert errors == [
+        f"Field '{field}' must not contain NUL characters."
+    ]
