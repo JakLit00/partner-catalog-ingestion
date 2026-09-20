@@ -1,7 +1,6 @@
 import json
-
-from unittest.mock import Mock
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -25,6 +24,7 @@ def test_fetch_page_rejects_non_list_response(tmp_path: Path) -> None:
             output_dir=tmp_path,
         )
 
+
 def test_fetch_page_returns_product_list(tmp_path: Path) -> None:
     products = [{"id": 1, "title": "Test product"}]
 
@@ -44,6 +44,7 @@ def test_fetch_page_returns_product_list(tmp_path: Path) -> None:
 
     assert result == products
 
+
 def test_save_raw_page_preserves_response_text(tmp_path: Path) -> None:
     response_text = '[\n  {"id": 1, "title": "Test Óżśćł@#$"}\n]'
     output_dir = tmp_path / "raw" / "test_run"
@@ -57,6 +58,7 @@ def test_save_raw_page_preserves_response_text(tmp_path: Path) -> None:
     saved_file = output_dir / "page_0001.json"
 
     assert saved_file.read_bytes() == response_text.encode("utf-8")
+
 
 def test_fetch_page_propagates_http_error(tmp_path: Path) -> None:
     session = Mock(spec=requests.Session)
@@ -77,6 +79,7 @@ def test_fetch_page_propagates_http_error(tmp_path: Path) -> None:
 
     response.json.assert_not_called()
     assert list(tmp_path.iterdir()) == []
+
 
 def test_save_rejected_products_preserves_records_and_errors(
     tmp_path: Path,
@@ -100,6 +103,7 @@ def test_save_rejected_products_preserves_records_and_errors(
     saved_products = json.loads(output_path.read_text(encoding="utf-8"))
 
     assert saved_products == rejected_products
+
 
 @pytest.mark.parametrize(
     ("value", "expected_text"),

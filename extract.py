@@ -1,27 +1,28 @@
-import logging
-import os
 import json
+import logging
 import math
-from pathlib import Path
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
-import requests
 import psycopg
-from loading import load_products
+import requests
 from dotenv import load_dotenv
 from pythonjsonlogger.json import JsonFormatter
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
-from validation import validate_product
+from loading import load_products
 from transformation import transform_product
+from validation import validate_product
 
 logger = logging.getLogger(__name__)
 
+
 def save_raw_page(
-        response_text: str,
-        page: int,
-        output_dir: Path,
+    response_text: str,
+    page: int,
+    output_dir: Path,
 ) -> None:
     """Save an API response body without parsing or transforming it."""
 
@@ -32,6 +33,7 @@ def save_raw_page(
         encoding="utf-8",
         newline="",
     )
+
 
 def create_http_session() -> requests.Session:
     """Create an HTTP session with retries for transient GET failures."""
@@ -50,6 +52,7 @@ def create_http_session() -> requests.Session:
     session.mount("https://", HTTPAdapter(max_retries=retry_policy))
 
     return session
+
 
 def fetch_page(
     session: requests.Session,
@@ -75,6 +78,7 @@ def fetch_page(
 
     return products
 
+
 def make_json_safe(value: object) -> object:
     """Represent non-finite numbers as strings in rejection reports."""
 
@@ -84,10 +88,7 @@ def make_json_safe(value: object) -> object:
         return "Infinity" if value > 0 else "-Infinity"
 
     if isinstance(value, dict):
-        return {
-            key: make_json_safe(item)
-            for key, item in value.items()
-        }
+        return {key: make_json_safe(item) for key, item in value.items()}
 
     if isinstance(value, list):
         return [make_json_safe(item) for item in value]
@@ -113,6 +114,7 @@ def save_rejected_products(
             allow_nan=False,
         )
         file.write("\n")
+
 
 def main() -> None:
     handler = logging.StreamHandler()
@@ -168,9 +170,7 @@ def main() -> None:
             ) from None
 
         if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError(
-                "API_TIMEOUT_SECONDS must be a positive finite number."
-            )
+            raise ValueError("API_TIMEOUT_SECONDS must be a positive finite number.")
 
         try:
             postgres_port = int(os.environ["POSTGRES_PORT"])
@@ -180,9 +180,7 @@ def main() -> None:
             ) from None
 
         if not 1 <= postgres_port <= 65535:
-            raise ValueError(
-                "POSTGRES_PORT must be an integer between 1 and 65535."
-            )
+            raise ValueError("POSTGRES_PORT must be an integer between 1 and 65535.")
 
         output_dir = env_path.parent / "data" / "raw" / run_id
         page_size = 25
@@ -192,7 +190,6 @@ def main() -> None:
         page = 1
 
         with create_http_session() as session:
-
             while True:
                 products = fetch_page(
                     session=session,

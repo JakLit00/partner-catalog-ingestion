@@ -144,6 +144,7 @@ def test_validate_product_rejects_missing_stock() -> None:
 
     assert errors == ["Field 'stock' must be an integer."]
 
+
 @pytest.mark.parametrize("price", [0, 0.0, 20, 19.99])
 def test_validate_product_accepts_valid_price(price: int | float) -> None:
     product = {
@@ -202,6 +203,7 @@ def test_validate_product_rejects_missing_price() -> None:
 
     assert errors == ["Field 'price' must be a number."]
 
+
 @pytest.mark.parametrize("field", ["id", "stock"])
 def test_validate_product_accepts_bigint_max(field: str) -> None:
     product = {
@@ -233,6 +235,7 @@ def test_validate_product_rejects_bigint_overflow(field: str) -> None:
 
     assert errors == [f"Field '{field}' exceeds the BIGINT range."]
 
+
 @pytest.mark.parametrize("field", ["title", "category"])
 def test_validate_product_rejects_nul_in_text_fields(field: str) -> None:
     product = {
@@ -246,6 +249,4 @@ def test_validate_product_rejects_nul_in_text_fields(field: str) -> None:
 
     errors = validate_product(product)
 
-    assert errors == [
-        f"Field '{field}' must not contain NUL characters."
-    ]
+    assert errors == [f"Field '{field}' must not contain NUL characters."]

@@ -2,6 +2,7 @@ import math
 
 BIGINT_MAX = 9_223_372_036_854_775_807
 
+
 def validate_product(product: object) -> list[str]:
     """Return validation errors for a source product record."""
 
