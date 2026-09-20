@@ -69,8 +69,7 @@ def test_main_fetches_all_pages_before_loading(
     extract.main()
 
     requested_pages = [
-        request.kwargs["params"]["_page"]
-        for request in session.get.call_args_list
+        request.kwargs["params"]["_page"] for request in session.get.call_args_list
     ]
 
     assert requested_pages == [1, 2, 3]
@@ -91,10 +90,8 @@ def test_main_fetches_all_pages_before_loading(
         "page_0002.json",
         "page_0003.json",
     ]
-    assert [
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in raw_files
-    ] == pages
+    assert [json.loads(path.read_text(encoding="utf-8")) for path in raw_files] == pages
+
 
 def test_main_does_not_load_products_when_later_page_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -152,8 +149,7 @@ def test_main_does_not_load_products_when_later_page_fails(
             extract.main()
 
     requested_pages = [
-        request.kwargs["params"]["_page"]
-        for request in session.get.call_args_list
+        request.kwargs["params"]["_page"] for request in session.get.call_args_list
     ]
 
     assert requested_pages == [1, 2]
@@ -182,6 +178,7 @@ def test_main_does_not_load_products_when_later_page_fails(
     assert failure.__dict__["page"] == 2
     assert failure.__dict__["run_id"] == raw_files[0].parent.name
     assert failure.exc_info is not None
+
 
 def test_main_loads_valid_products_and_saves_rejected_records(
     monkeypatch: pytest.MonkeyPatch,
@@ -259,13 +256,11 @@ def test_main_loads_valid_products_and_saves_rejected_records(
 
     assert len(rejected_files) == 1
 
-    rejected_products = json.loads(
-        rejected_files[0].read_text(encoding="utf-8")
-    )
+    rejected_products = json.loads(rejected_files[0].read_text(encoding="utf-8"))
 
     assert rejected_products == [
         {
             "record": invalid_product,
             "errors": ["Field 'stock' must not be negative."],
         }
-    ]    
+    ]

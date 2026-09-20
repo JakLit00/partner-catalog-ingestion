@@ -22,8 +22,7 @@ def main() -> None:
     with psycopg.connect(**connection_settings) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id, title, category, price, stock "
-                "FROM products WHERE id = 1;"
+                "SELECT id, title, category, price, stock FROM products WHERE id = 1;"
             )
             original = cursor.fetchone()
 
@@ -52,8 +51,7 @@ def main() -> None:
     with psycopg.connect(**connection_settings) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT id, title, category, price, stock "
-                "FROM products WHERE id = 1;"
+                "SELECT id, title, category, price, stock FROM products WHERE id = 1;"
             )
             actual = cursor.fetchone()
 
