@@ -1,5 +1,6 @@
 import math
 
+BIGINT_MAX = 9_223_372_036_854_775_807
 
 def validate_product(product: object) -> list[str]:
     """Return validation errors for a source product record."""
@@ -15,6 +16,8 @@ def validate_product(product: object) -> list[str]:
         errors.append("Field 'id' must be an integer.")
     elif product_id <= 0:
         errors.append("Field 'id' must be greater than zero.")
+    elif product_id > BIGINT_MAX:
+        errors.append("Field 'id' exceeds the BIGINT range.")
 
     for field in ("title", "category"):
         value = product.get(field)
@@ -30,6 +33,8 @@ def validate_product(product: object) -> list[str]:
         errors.append("Field 'stock' must be an integer.")
     elif stock < 0:
         errors.append("Field 'stock' must not be negative.")
+    elif stock > BIGINT_MAX:
+        errors.append("Field 'stock' exceeds the BIGINT range.")
 
     price = product.get("price")
 
