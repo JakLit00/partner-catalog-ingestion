@@ -26,6 +26,9 @@ def validate_product(product: object) -> list[str]:
             errors.append(f"Field '{field}' must be a string.")
         elif not value.strip():
             errors.append(f"Field '{field}' must not be empty.")
+        elif "\x00" in value:
+            # PostgreSQL text columns cannot store NUL characters.
+            errors.append(f"Field '{field}' must not contain NUL characters.")
 
     stock = product.get("stock")
 
