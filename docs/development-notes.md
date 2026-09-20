@@ -97,7 +97,7 @@ The Linux checkout was placed under `~/projects` and received its own virtual en
 
 Using the same Docker engine and Compose project name can reuse the same containers and volume. An earlier initialization check therefore used a separate Compose project and volume, with the ordinary services stopped to free the fixed ports. It loaded 194 products without deleting the original volume.
 
-These earlier WSL checks predate the latest review changes and role separation. The current 73-case suite, Ruff checks, application-role import and rollback were subsequently confirmed on Windows. A full Linux rerun of the final role setup and a GitHub Actions execution are not included in those local results.
+After the review changes and role separation, the updated project was checked again on Ubuntu in WSL2. All 73 tests passed, Python connected as catalog_ingestor, the importer loaded 194 products, and the rollback check confirmed that the original product was unchanged. The working tree remained clean after execution.
 
 ## 9. Verification results
 
@@ -112,7 +112,9 @@ Completed checks recorded during development:
 - **Failure paths:** earlier checks with the API stopped, a blank required setting and a simulated raw-file write failure produced controlled failure behavior.
 - **Initialization:** an earlier separate-volume check created the table and imported the dataset under WSL2; it preceded the new role script.
 
-Database checks are explicit local checks rather than pytest integration tests. The final role bootstrap has not been recorded as a fresh-volume test, and the four-job CI matrix has not yet been recorded as executed. No separate-machine provisioning result is claimed.
+GitHub Actions passed all four matrix jobs: Ubuntu and Windows, each with Python 3.13 and 3.14. Every job completed dependency installation, Ruff lint checks, formatting verification and all 73 pytest cases.
+
+Database checks remain explicit local checks rather than pytest integration tests. Full ingestion and rollback with the restricted application role passed on Windows and Ubuntu in WSL2. The final role bootstrap has not been verified on a fresh volume, and no separate-machine provisioning result is claimed.
 
 ## 10. Remaining boundaries
 
