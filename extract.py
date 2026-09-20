@@ -107,142 +107,164 @@ def main() -> None:
         handlers=[handler],
     )
 
-    # Resolve configuration independently of the working directory.
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(env_path, override=False)
-
-    required_variables = (
-        "API_BASE_URL",
-        "API_TIMEOUT_SECONDS",
-        "POSTGRES_HOST",
-        "POSTGRES_PORT",
-        "POSTGRES_DB",
-        "POSTGRES_USER",
-        "POSTGRES_PASSWORD",
-    )
-
-    missing_variables = []
-
-    for name in required_variables:
-        value = os.environ.get(name)
-
-        if value is None or not value.strip():
-            missing_variables.append(name)
-
-    if missing_variables:
-        raise ValueError(
-            "Missing required configuration variables: "
-            + ", ".join(missing_variables)
-        )
-
-    base_url = os.environ["API_BASE_URL"].rstrip("/")
-
-    try:
-        timeout = float(os.environ["API_TIMEOUT_SECONDS"])
-    except ValueError:
-        raise ValueError(
-            "API_TIMEOUT_SECONDS must be a positive finite number."
-        ) from None
-
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError(
-            "API_TIMEOUT_SECONDS must be a positive finite number."
-        )
-
-    try:
-        postgres_port = int(os.environ["POSTGRES_PORT"])
-    except ValueError:
-        raise ValueError(
-            "POSTGRES_PORT must be an integer between 1 and 65535."
-        ) from None
-
-    if not 1 <= postgres_port <= 65535:
-        raise ValueError(
-            "POSTGRES_PORT must be an integer between 1 and 65535."
-        )
-
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    output_dir = env_path.parent / "data" / "raw" / run_id
+    stage = "configuration"
+    page = None
 
-    page = 1
-    page_size = 25
-    all_products = []
+    try:
+        # Resolve configuration independently of the working directory.
+        env_path = Path(__file__).resolve().parent / ".env"
+        load_dotenv(env_path, override=False)
 
-    # Retry transient failures for catalog reads; fail immediately
-    # on HTTP errors outside the retry policy.
-    retry_policy = Retry(
-        total=3,
-        backoff_factor=1,
-        allowed_methods={"GET"},
-        status_forcelist=[429, 500, 502, 503, 504],
-        other=0,
-        raise_on_status=False,  # Preserve the final response for raise_for_status().
-    )
+        required_variables = (
+            "API_BASE_URL",
+            "API_TIMEOUT_SECONDS",
+            "POSTGRES_HOST",
+            "POSTGRES_PORT",
+            "POSTGRES_DB",
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+        )
 
-    with requests.Session() as session:
-        session.mount("http://", HTTPAdapter(max_retries=retry_policy))
-        session.mount("https://", HTTPAdapter(max_retries=retry_policy))
+        missing_variables = []
 
-        while True:
-            products = fetch_page(
-                session=session,
-                base_url=base_url,
-                page=page,
-                page_size=page_size,
-                timeout=timeout,
-                output_dir=output_dir
+        for name in required_variables:
+            value = os.environ.get(name)
+
+            if value is None or not value.strip():
+                missing_variables.append(name)
+
+        if missing_variables:
+            raise ValueError(
+                "Missing required configuration variables: "
+                + ", ".join(missing_variables)
             )
 
-            if not products:
-                break
+        base_url = os.environ["API_BASE_URL"].rstrip("/")
 
-            all_products.extend(products)
-            page += 1
+        try:
+            timeout = float(os.environ["API_TIMEOUT_SECONDS"])
+        except ValueError:
+            raise ValueError(
+                "API_TIMEOUT_SECONDS must be a positive finite number."
+            ) from None
 
-    valid_products = []
-    rejected_products = []
-
-    for product in all_products:
-        errors = validate_product(product)
-
-        if errors:
-            rejected_products.append(
-                {
-                    "record": product,
-                    "errors": errors,
-                }
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError(
+                "API_TIMEOUT_SECONDS must be a positive finite number."
             )
-        else:
-            valid_products.append(transform_product(product))
 
-    rejected_path = env_path.parent / "data" / "rejected" / f"{run_id}.json"
-    save_rejected_products(rejected_products, rejected_path)
+        try:
+            postgres_port = int(os.environ["POSTGRES_PORT"])
+        except ValueError:
+            raise ValueError(
+                "POSTGRES_PORT must be an integer between 1 and 65535."
+            ) from None
 
-    with psycopg.connect(
-        host=os.environ["POSTGRES_HOST"],
-        port=postgres_port,
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-        connect_timeout=5,
-    ) as connection:
-        load_products(connection, valid_products)
+        if not 1 <= postgres_port <= 65535:
+            raise ValueError(
+                "POSTGRES_PORT must be an integer between 1 and 65535."
+            )
 
-    logger.info(
-        "Catalog ingestion completed",
-        extra={
+        output_dir = env_path.parent / "data" / "raw" / run_id
+        page_size = 25
+        all_products = []
+
+        # Retry transient failures for catalog reads.
+        retry_policy = Retry(
+            total=3,
+            backoff_factor=1,
+            allowed_methods={"GET"},
+            status_forcelist=[429, 500, 502, 503, 504],
+            other=0,
+            raise_on_status=False,  # Preserve the final HTTP response.
+        )
+
+        stage = "extraction"
+        page = 1
+
+        with requests.Session() as session:
+            session.mount("http://", HTTPAdapter(max_retries=retry_policy))
+            session.mount("https://", HTTPAdapter(max_retries=retry_policy))
+
+            while True:
+                products = fetch_page(
+                    session=session,
+                    base_url=base_url,
+                    page=page,
+                    page_size=page_size,
+                    timeout=timeout,
+                    output_dir=output_dir,
+                )
+
+                if not products:
+                    break
+
+                all_products.extend(products)
+                page += 1
+
+        stage = "validation"
+        valid_products = []
+        rejected_products = []
+
+        for product in all_products:
+            errors = validate_product(product)
+
+            if errors:
+                rejected_products.append(
+                    {
+                        "record": product,
+                        "errors": errors,
+                    }
+                )
+            else:
+                valid_products.append(transform_product(product))
+
+        stage = "rejection_report"
+        rejected_path = env_path.parent / "data" / "rejected" / f"{run_id}.json"
+        save_rejected_products(rejected_products, rejected_path)
+
+        stage = "database_loading"
+
+        with psycopg.connect(
+            host=os.environ["POSTGRES_HOST"],
+            port=postgres_port,
+            dbname=os.environ["POSTGRES_DB"],
+            user=os.environ["POSTGRES_USER"],
+            password=os.environ["POSTGRES_PASSWORD"],
+            connect_timeout=5,
+        ) as connection:
+            load_products(connection, valid_products)
+
+        logger.info(
+            "Catalog ingestion completed",
+            extra={
+                "run_id": run_id,
+                "product_count": len(all_products),
+                "valid_count": len(valid_products),
+                "rejected_count": len(rejected_products),
+                "loaded_count": len(valid_products),
+            },
+        )
+
+    except (requests.RequestException, ValueError, psycopg.Error, OSError):
+        error_context: dict[str, str | int | None] = {
             "run_id": run_id,
-            "product_count": len(all_products),
-            "valid_count": len(valid_products),
-            "rejected_count": len(rejected_products),
-            "loaded_count": len(valid_products),
-        },
-    )
+            "stage": stage,
+        }
+
+        if stage == "extraction":
+            error_context["page"] = page
+
+        logger.exception(
+            "Catalog ingestion failed",
+            extra=error_context,
+        )
+        raise
 
 
 if __name__ == "__main__":
     try:
         main()
     except (requests.RequestException, ValueError, psycopg.Error, OSError):
-        logger.exception("Catalog ingestion failed")
         raise SystemExit(1)
