@@ -33,6 +33,24 @@ def save_raw_page(
         newline="",
     )
 
+def create_http_session() -> requests.Session:
+    """Create an HTTP session with retries for transient GET failures."""
+
+    retry_policy = Retry(
+        total=3,
+        backoff_factor=1,
+        allowed_methods={"GET"},
+        status_forcelist=[429, 500, 502, 503, 504],
+        other=0,
+        raise_on_status=False,  # Preserve the final HTTP response.
+    )
+
+    session = requests.Session()
+    session.mount("http://", HTTPAdapter(max_retries=retry_policy))
+    session.mount("https://", HTTPAdapter(max_retries=retry_policy))
+
+    return session
+
 def fetch_page(
     session: requests.Session,
     base_url: str,
@@ -170,22 +188,10 @@ def main() -> None:
         page_size = 25
         all_products = []
 
-        # Retry transient failures for catalog reads.
-        retry_policy = Retry(
-            total=3,
-            backoff_factor=1,
-            allowed_methods={"GET"},
-            status_forcelist=[429, 500, 502, 503, 504],
-            other=0,
-            raise_on_status=False,  # Preserve the final HTTP response.
-        )
-
         stage = "extraction"
         page = 1
 
-        with requests.Session() as session:
-            session.mount("http://", HTTPAdapter(max_retries=retry_policy))
-            session.mount("https://", HTTPAdapter(max_retries=retry_policy))
+        with create_http_session() as session:
 
             while True:
                 products = fetch_page(
