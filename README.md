@@ -183,9 +183,58 @@ The run ID uses UTC and links console logs to output files. Failure logs include
 .venv/bin/python -m pytest -q
 ```
 
-The suite contains **73 cases**, covering validation, transformation, configuration, file output, pagination, failure handling and recovery after HTTP 503. Tests need no Docker, database, credentials or external API. The retry test starts a temporary loopback HTTP server; other HTTP interactions are mocked.
+The default run executes **73 cases** and skips **eight PostgreSQL integration cases**. It covers validation, transformation, configuration, file output, pagination, failure handling and recovery after HTTP 503. These 73 cases require no Docker, database credentials or external API. The retry test starts a temporary loopback HTTP server; other HTTP interactions are mocked.
 
-After an import, verify rollback against the local demo database:
+### PostgreSQL integration tests
+
+The integration suite uses a separate, disposable PostgreSQL instance. It checks schema and role initialization, committed inserts, upserts without duplicates, constraint failure with full transaction rollback, and denial of DELETE, TRUNCATE, DROP TABLE and CREATE TABLE for the importer role.
+
+Use the same Python environment and installed development dependencies as above. Docker must be running and host port **55432** must be free. The ordinary API, demo database and application `.env` are not required.
+
+Start the test database from the repository root, in either PowerShell or Bash:
+
+```text
+docker compose -f compose.test.yaml up -d --wait
+```
+
+Compose waits for PostgreSQL readiness. Initialization creates the table and restricted role using the project's SQL scripts, then sets the disposable application password automatically.
+
+Run the complete suite, including integration cases:
+
+**Windows**
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q --run-integration
+```
+
+**Linux**
+
+```bash
+.venv/bin/python -m pytest -q --run-integration
+```
+
+Expected result: **81 passed**. To run only the eight database cases, add `tests/integration` after `pytest` in the corresponding command.
+
+After testing, remove the test service, including after a failed test run:
+
+```text
+docker compose -f compose.test.yaml down
+```
+
+The test configuration uses its own Compose project, loopback port 55432 and temporary database storage. It does not mount the demo database's persistent volume. Fixed test credentials are deliberately included in the repository; use them only for this disposable local instance, never for a shared or deployed database. Loopback binding limits network exposure but does not prevent access by other processes on the same host.
+
+Database tests clear `public.products` before and after each data-changing test. Run them sequentially against this instance. Stopping the test container discards its database contents; starting an already running container does not reset them. For a fresh initialization, run `down` followed by `up -d --wait`. To inspect a startup failure, use `docker compose -f compose.test.yaml logs --no-color`.
+
+### CI and manual checks
+
+[GitHub Actions](.github/workflows/quality-checks.yml) runs five jobs on pushes to `main`, pull requests targeting `main`, and manual dispatch:
+
+- Four quality jobs cover Python 3.13 and 3.14 on Ubuntu and Windows. Each runs Ruff and the default pytest suite.
+- One integration job uses Ubuntu and Python 3.13, starts the disposable PostgreSQL instance, runs all eight database cases, and removes the service even if tests fail. Database logs are printed on failure.
+
+No application secrets are needed by CI. The workflow checks the database boundary automatically; it does not run the complete local API-to-database import.
+
+After a demo import, `check_rollback.py` remains available as an optional manual check:
 
 ```powershell
 # Windows
@@ -197,11 +246,9 @@ After an import, verify rollback against the local demo database:
 .venv/bin/python check_rollback.py
 ```
 
-The check uses product ID `1`, attempts a valid update followed by invalid stock in one transaction, and verifies that the original row is unchanged.
+It uses the application `.env` and product ID `1` in the demo database, attempts a valid update followed by invalid stock in one transaction, and verifies that the original row is unchanged.
 
-[GitHub Actions](.github/workflows/quality-checks.yml) is configured to run Ruff and pytest for Python 3.13 and 3.14 on Ubuntu and Windows. It runs on pushes to `main`, pull requests targeting `main`, and manual dispatch. Results are available in the repository's **Actions** tab. This workflow does not start PostgreSQL or run database integration checks.
-
-See [verification results](docs/development-notes.md#9-verification-results) for the distinction between completed local checks and the configured CI matrix.
+See [verification results](docs/development-notes.md#9-verification-results) for completed local and CI checks.
 
 ## Stop and restart
 

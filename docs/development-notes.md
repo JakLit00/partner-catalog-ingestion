@@ -1,6 +1,6 @@
 # Development Notes
 
-The project was built from the storage and source boundaries inward: local services, extraction, validation, transformation and loading. Cross-platform checks and a subsequent review added pipeline tests, stricter input checks, error context, code quality tooling and separate database roles.
+The project was built from the storage and source boundaries inward: local services, extraction, validation, transformation and loading. Cross-platform checks and a subsequent review added pipeline tests, stricter input checks, error context, code quality tooling and separate database roles. PostgreSQL integration tests then extended CI to cover real transactions and role permissions.
 
 ## 1. Source and local infrastructure
 
@@ -69,7 +69,7 @@ The role receives database `CONNECT`, schema `USAGE`, and table `SELECT`, `INSER
 
 Compose reads `POSTGRES_ADMIN_USER` and `POSTGRES_ADMIN_PASSWORD` for database initialization; Python reads `POSTGRES_USER` and `POSTGRES_PASSWORD`. The account names are deliberately separate even though the historical administrator name contains `app`.
 
-Initialization runs the table script before the role script, each with `ON_ERROR_STOP=1` and a single transaction. The role script uses psql's `DBNAME` variable for the connected database and explicitly names `catalog_ingestor`. Its password is set interactively with `\password`, matching the local `.env`; no password is stored in SQL.
+The ordinary local setup runs the table script before the role script, each with `ON_ERROR_STOP=1` and a single transaction. The role script uses psql's `DBNAME` variable for the connected database and explicitly names `catalog_ingestor`. Its password is set interactively with `\password`, matching the local `.env`; no password is stored in SQL.
 
 This change was applied to the existing volume without deleting data. Editing Compose initialization values does not alter an existing role or password. On a new volume, both scripts and password setup must be performed. Roles are cluster-wide, so the role script is not rerun for every database in an existing cluster.
 
@@ -77,17 +77,51 @@ The separation limits the application's database privileges. Both sets of creden
 
 ## 7. Tests, formatting and CI
 
-The suite has 73 cases: 49 validation, eight extraction/file-output, one transformation, 11 configuration, three pipeline and one HTTP retry case.
+### Tests without PostgreSQL
+
+The default suite runs 73 cases: 49 validation, eight extraction/file-output, one transformation, 11 configuration, three pipeline and one HTTP retry case. Eight database integration cases are collected but skipped unless `--run-integration` is supplied.
 
 Pipeline tests cover complete pagination, failure before loading, and routing valid and rejected records. They replace external connections while exercising the real validation, transformation and file-writing functions. The failure test also links the log's run ID to the raw output directory and checks the failing page.
 
 The retry test starts a temporary HTTP server on loopback using an available port. It responds with 503 and then 200. Two requests for the same path confirm that the production session policy retries, and the final response is saved. The test needs no external API and disables environment proxy settings for its session. It does not measure backoff timing or test exhausted retries.
 
+### PostgreSQL integration tests
+
+Mocked pipeline tests cannot establish whether Psycopg executes the real SQL correctly or whether PostgreSQL commits, rolls back and enforces permissions as intended. The integration suite exercises `loading.py` against PostgreSQL without replacing its connection or cursor.
+
+`compose.test.yaml` defines the separate `partner-catalog-tests` project. PostgreSQL binds to host loopback on port 55432, leaving the demo database's port 5433 and API's port 3000 available. Database storage uses `tmpfs`, not the demo database's named volume. Stopping the container discards test data.
+
+On a fresh start, the PostgreSQL image executes three read-only mounted initialization files in order:
+
+1. `sql/001_create_products.sql` creates the same table used by the importer.
+2. `sql/002_create_app_role.sql` creates the restricted importer role and grants.
+3. `tests/integration/init_app_password.sql` reads `TEST_APP_PASSWORD` through psql and sets the role password with SQL-literal quoting.
+
+The test administrator is `integration_admin`; application operations use `catalog_ingestor`. The test passwords are public, disposable values shared by Compose and the pytest configuration. They are unrelated to application secrets. This setup is intended for a trusted local machine or an isolated CI runner, not a shared database deployment.
+
+`tests/conftest.py` adds the explicit `--run-integration` switch. Without it, database fixtures skip before attempting a connection or cleanup. Connection settings target `partner_catalog_test` on port 55432 and do not load the application's `.env`.
+
+An administrator fixture truncates the test table before and after each data-changing case. The loader itself always uses the restricted role. These fixtures share one table and are intended for sequential execution; parallel workers must not use the same instance.
+
+The eight cases verify:
+
+- The expected database, application user and initialized table are available.
+- An inserted product is committed and visible through a new connection.
+- An existing ID is updated across all mutable fields without creating a duplicate.
+- Invalid stock raises the expected constraint violation and rolls back both an earlier update and an earlier insert in that transaction.
+- Four forbidden operations fail with insufficient privileges: DELETE, TRUNCATE, DROP TABLE and CREATE TABLE.
+
+The rollback case reads the table through a new connection after failure and checks that only the original, unchanged product remains. Permission probes explicitly roll back even if an operation unexpectedly succeeds, preventing the probe from committing changes before reporting a failure.
+
+### Formatting and CI
+
 Ruff 0.16.8 is pinned in `requirements-dev.txt`. `pyproject.toml` sets Python 3.13 as the syntax target, basic correctness rules, import sorting and consistent formatting. `.gitattributes` normalizes tracked text to LF. Tests remain responsible for behavior; formatting checks do not replace them.
 
-The GitHub Actions workflow defines four combinations: Ubuntu and Windows, each with Python 3.13 and 3.14. Each installs development dependencies and runs Ruff checks, a formatting check and pytest. It runs for pushes to `main`, pull requests targeting `main`, and manual dispatch. Permissions are read-only for repository content, credentials are not persisted by checkout, and each job has a ten-minute limit.
+The GitHub Actions workflow defines four quality combinations: Ubuntu and Windows, each with Python 3.13 and 3.14. Each installs development dependencies and runs Ruff checks, a formatting check and the default pytest suite.
 
-CI does not provision PostgreSQL or run `check_rollback.py`. It requires no database secrets. A configured matrix describes the intended checks; successful execution is established by the corresponding Actions run.
+A fifth job uses Ubuntu and Python 3.13 for PostgreSQL integration tests. It starts `compose.test.yaml` with `--wait`; a TCP health check waits for the database service after initialization. It then runs the eight integration cases, prints database logs on failure, and removes the service with an `always()` cleanup step.
+
+The workflow runs for pushes to `main`, pull requests targeting `main`, and manual dispatch. Repository-content permissions are read-only, credentials are not persisted by checkout, and each job has a ten-minute limit. No application secrets are required. The integration job tests the real database boundary, while the full local API-to-database import remains a manual verification.
 
 ## 8. Platform verification
 
@@ -103,18 +137,17 @@ After the review changes and role separation, the updated project was checked ag
 
 Completed checks recorded during development:
 
-- **Code checks:** 73 pytest cases passed; Ruff lint and formatting checks passed on Windows after the code-quality changes.
-- **Restricted-role connection:** Python reported `catalog_ingestor` as the connected user.
-- **Restricted-role import:** 194 received, 194 valid, zero rejected and 194 loaded.
-- **Restricted-role rollback:** the deliberate constraint violation left the original product unchanged.
-- **Effective privileges:** SELECT, INSERT and UPDATE allowed; DELETE, TRUNCATE and schema CREATE denied.
-- **Repeat and update behavior:** earlier checks retained 194 rows and restored a manually changed price to the source value.
-- **Failure paths:** earlier checks with the API stopped, a blank required setting and a simulated raw-file write failure produced controlled failure behavior.
-- **Initialization:** an earlier separate-volume check created the table and imported the dataset under WSL2; it preceded the new role script.
+- **Default suite:** 73 passed and eight integration cases skipped when PostgreSQL tests are not requested.
+- **Local database tests:** all eight integration cases passed against the disposable PostgreSQL instance on Windows. Ruff lint and formatting checks also passed.
+- **CI:** all five jobs passed. Four platform/version combinations ran code-quality checks and the default suite; the Ubuntu integration job passed all eight database cases.
+- **Fresh test database:** CI initialized the table and application role from the project SQL scripts, set the test password and connected as the restricted role.
+- **Restricted-role import:** the local pipeline reported 194 received, 194 valid, zero rejected and 194 loaded on Windows and Ubuntu in WSL2.
+- **Transaction behavior:** automated database tests verified committed inserts, updates without duplicates, and complete rollback after a constraint violation. Manual rollback checks also passed against the demo database.
+- **Effective privileges:** SELECT, INSERT and UPDATE worked; integration tests denied DELETE, TRUNCATE, DROP TABLE and CREATE TABLE.
+- **Repeat imports:** manual checks retained 194 rows and restored a modified price to the source value.
+- **Failure paths:** checks with the API stopped, a blank required setting and a simulated raw-file write failure produced controlled failure behavior.
 
-GitHub Actions passed all four matrix jobs: Ubuntu and Windows, each with Python 3.13 and 3.14. Every job completed dependency installation, Ruff lint checks, formatting verification and all 73 pytest cases.
-
-Database checks remain explicit local checks rather than pytest integration tests. Full ingestion and rollback with the restricted application role passed on Windows and Ubuntu in WSL2. The final role bootstrap has not been verified on a fresh volume, and no separate-machine provisioning result is claimed.
+The earlier WSL2 run covered the 73-case suite and the full demo import with Python 3.14.4. The new database integration job runs on Ubuntu with Python 3.13; it does not establish database integration coverage for every quality-matrix combination. Fresh test database initialization is automated, but full application setup on a separate clean machine has not been recorded.
 
 ## 10. Remaining boundaries
 
