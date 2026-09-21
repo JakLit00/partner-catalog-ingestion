@@ -1,0 +1,33 @@
+name: partner-catalog-tests
+
+services:
+  postgres-test:
+    image: postgres:16.15-bookworm
+    environment:
+      # Disposable test credentials, unrelated to the local application database.
+      POSTGRES_DB: partner_catalog_test
+      POSTGRES_USER: integration_admin
+      POSTGRES_PASSWORD: integration_admin_password
+      TEST_APP_PASSWORD: integration_app_password
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./sql/001_create_products.sql:/docker-entrypoint-initdb.d/001_create_products.sql:ro
+      - ./sql/002_create_app_role.sql:/docker-entrypoint-initdb.d/002_create_app_role.sql:ro
+      - ./tests/integration/init_app_password.sql:/docker-entrypoint-initdb.d/003_set_app_password.sql:ro
+    healthcheck:
+      test:
+        - CMD
+        - pg_isready
+        - -h
+        - "127.0.0.1"
+        - -U
+        - integration_admin
+        - -d
+        - partner_catalog_test
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
