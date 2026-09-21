@@ -1,5 +1,9 @@
 # Partner Catalog Ingestion
 
+[![Quality checks](https://github.com/JakLit00/partner-catalog-ingestion/actions/workflows/quality-checks.yml/badge.svg?branch=main)](https://github.com/JakLit00/partner-catalog-ingestion/actions/workflows/quality-checks.yml)
+![Python](https://img.shields.io/badge/Python-3.13%20%7C%203.14-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
 A Python batch pipeline that imports a partner's product catalog from a REST API into PostgreSQL. It saves source responses, separates invalid records with rejection reasons, and updates existing products in one database transaction.
 
 The business scenario is a company maintaining a partner catalog for internal applications that need product names, categories, prices and stock levels. A fixed snapshot of 194 products is served locally, making the demonstration independent of changes to the public source API.
@@ -271,3 +275,10 @@ Database contents and roles persist in the named volume. Removing the volume del
 The snapshot comes from [DummyJSON](https://dummyjson.com/docs/products). `api/catalog-source.json` retains the downloaded response; `api/db.json` supplies JSON Server's product collection. Image URLs are metadata only. The upstream MIT notice is preserved in [api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
 
 [Development notes](docs/development-notes.md) describe the implementation sequence and the reasons behind the main decisions.
+
+## License
+
+The project code is licensed under the [MIT License](LICENSE).
+
+The bundled DummyJSON dataset retains its upstream license notice in
+[api/DUMMYJSON-LICENSE.txt](api/DUMMYJSON-LICENSE.txt).
